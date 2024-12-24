@@ -2,10 +2,13 @@
 
 all: release
 
+run:
+	./easeprobe
+
 build:
-	cargo build
+	RUST_LOG=debug cargo build
 	cp ./target/debug/easeprobe .
 
 release:
-	cargo build --release
+	RUST_LOG=info cargo build --release
 	cp ./target/release/easeprobe .

@@ -1,4 +1,4 @@
 mod channel;
-mod manager;
 pub use channel::*;
+mod manager;
 pub use manager::*;
