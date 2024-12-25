@@ -1,9 +1,11 @@
 use crate::probe;
-use once_cell::sync::Lazy;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 mod result;
-pub use result::*;
+use result::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
@@ -59,7 +61,7 @@ impl Format {
 }
 
 pub type FormatFuncType = fn(Arc<probe::ProbeResult>) -> String;
-pub type StatFormatFuncType = fn(Vec<Box<dyn probe::Prober>>) -> String;
+pub type StatFormatFuncType = fn(Vec<Arc<dyn probe::Prober>>) -> String;
 
 #[derive(Debug)]
 pub struct FormatFuncStruct {
@@ -67,7 +69,7 @@ pub struct FormatFuncStruct {
     pub stat_fn: StatFormatFuncType,
 }
 
-pub static FORMAT_FUNCS: Lazy<HashMap<Format, FormatFuncStruct>> = Lazy::new(|| {
+pub static FORMAT_FUNCS: LazyLock<HashMap<Format, FormatFuncStruct>> = LazyLock::new(|| {
     let mut m = HashMap::new();
     m.insert(
         Format::Unknown,

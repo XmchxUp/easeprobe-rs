@@ -14,6 +14,6 @@ pub(crate) fn to_text(r: Arc<probe::ProbeResult>) -> String {
         ""
     )
 }
-pub(crate) fn sla_text(probers: Vec<Box<dyn probe::Prober>>) -> String {
+pub(crate) fn sla_text(_: Vec<Arc<dyn probe::Prober>>) -> String {
     format!("{}", "[Overall SLA Report]\n\n")
 }

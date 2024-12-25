@@ -3,9 +3,9 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::{global, probe, report, ProbeResult, FORMAT_FUNCS};
+use crate::{global, report, ProbeResult, Prober, FORMAT_FUNCS};
 
-use super::Notifier;
+use super::Notify;
 
 pub struct DefaultNotify {
     pub kind: String,
@@ -19,7 +19,7 @@ pub struct DefaultNotify {
 }
 
 #[async_trait]
-impl Notifier for DefaultNotify {
+impl Notify for DefaultNotify {
     fn kind(&self) -> &str {
         &self.kind
     }
@@ -37,10 +37,10 @@ impl Notifier for DefaultNotify {
             self.dry_notify(result);
             return;
         }
-        let title = result.title();
+        let _ = result.title();
     }
 
-    fn notify_stat(&self, probers: Vec<Box<dyn crate::Prober>>) {
+    fn notify_stat(&self, _: Vec<Arc<dyn Prober>>) {
         todo!()
     }
 
@@ -53,7 +53,7 @@ impl Notifier for DefaultNotify {
         );
     }
 
-    fn dry_notify_stat(&self, probers: Vec<Box<dyn crate::Prober>>) {
+    fn dry_notify_stat(&self, probers: Vec<Arc<dyn Prober>>) {
         log::info!(
             "[{} / {} / dry_notify_stat] - {}",
             self.kind,

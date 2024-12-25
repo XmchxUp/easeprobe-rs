@@ -9,7 +9,7 @@ pub use notification_strategy::*;
 mod base;
 pub use base::*;
 
-pub trait Prober {
+pub trait Prober: Send + Sync {
     fn kind(&self) -> &str;
     fn name(&self) -> &str;
     fn channels(&self) -> &Vec<String>;
