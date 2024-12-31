@@ -1,4 +1,4 @@
-use crate::probe;
+use crate::{probe, ProbeResult};
 use std::{
     collections::HashMap,
     sync::{Arc, LazyLock},
@@ -60,7 +60,7 @@ impl Format {
     }
 }
 
-pub type FormatFuncType = fn(Arc<probe::ProbeResult>) -> String;
+pub type FormatFuncType = fn(&ProbeResult) -> String;
 pub type StatFormatFuncType = fn(Vec<Arc<dyn probe::Prober>>) -> String;
 
 #[derive(Debug)]

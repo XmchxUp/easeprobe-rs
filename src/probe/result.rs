@@ -5,6 +5,7 @@ use std::{
 
 use super::{NotificationStrategyData, Status};
 
+#[derive(Clone)]
 pub struct ProbeResult {
     pub name: String,
     pub endpoint: String,

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::{global, report, ProbeResult, Prober, FORMAT_FUNCS};
 
-use super::Notify;
+use super::Notifier;
 
 pub struct DefaultNotify {
     pub kind: String,
@@ -19,7 +19,7 @@ pub struct DefaultNotify {
 }
 
 #[async_trait]
-impl Notify for DefaultNotify {
+impl Notifier for DefaultNotify {
     fn kind(&self) -> &str {
         &self.kind
     }
@@ -32,7 +32,7 @@ impl Notify for DefaultNotify {
         &self.channels
     }
 
-    async fn notify(&self, result: Arc<ProbeResult>) {
+    async fn notify(&self, result: &ProbeResult) {
         if self.dry {
             self.dry_notify(result);
             return;
@@ -44,7 +44,7 @@ impl Notify for DefaultNotify {
         todo!()
     }
 
-    fn dry_notify(&self, res: Arc<ProbeResult>) {
+    fn dry_notify(&self, res: &ProbeResult) {
         log::info!(
             "[{} / {} / dry_notify] - {}",
             self.kind,

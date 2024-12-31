@@ -7,7 +7,7 @@ pub use base::*;
 use crate::{ProbeResult, Prober};
 
 #[async_trait]
-pub trait Notify: Send + Sync {
+pub trait Notifier: Send + Sync {
     fn kind(&self) -> &str;
     fn name(&self) -> &str;
     fn channels(&self) -> &Vec<String>;

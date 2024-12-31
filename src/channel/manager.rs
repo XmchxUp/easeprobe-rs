@@ -6,14 +6,14 @@ use std::{
     },
 };
 
-use dashmap::DashMap;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
-use crate::{Notify, Prober};
+use crate::{Notifier, Prober};
 
 use super::Channel;
 
-static CHANNELS: LazyLock<DashMap<String, Arc<RwLock<Channel>>>> = LazyLock::new(|| DashMap::new());
+static CHANNELS: LazyLock<Mutex<HashMap<String, Arc<Channel>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 static DRY_NOTIFY: AtomicBool = AtomicBool::new(false);
 
@@ -25,89 +25,83 @@ pub fn is_dry_notify() -> bool {
     DRY_NOTIFY.load(Ordering::SeqCst)
 }
 
-pub fn get_all_channels() -> &'static DashMap<String, Arc<RwLock<Channel>>> {
-    &CHANNELS
+pub async fn get_channel(name: &str) -> Option<Arc<Channel>> {
+    let channels = CHANNELS.lock().await;
+    channels.get(name).cloned()
 }
 
-pub fn get_channel(name: &str) -> Option<Arc<RwLock<Channel>>> {
-    CHANNELS.get(name).map(|entry| Arc::clone(entry.value()))
-}
-
-pub fn set_channel(name: &str) {
-    CHANNELS
-        .entry(name.to_string())
-        .or_insert_with(|| Arc::new(RwLock::new(Channel::new(name))));
-}
-
-pub async fn set_prober(channel: &str, prober: Arc<dyn Prober>) {
-    set_channel(&channel);
-    if let Some(channel_entry) = CHANNELS.get(channel) {
-        let mut channel = channel_entry.write().await;
-        channel.set_prober(prober);
+pub async fn set_channel(name: &str) {
+    let mut channels = CHANNELS.lock().await;
+    if !channels.contains_key(name) {
+        channels.insert(name.to_string(), Arc::new(Channel::new(name)));
     }
 }
 
 pub async fn set_probers(probers: Vec<Arc<dyn Prober>>) {
-    for p in probers {
-        for channel in p.channels() {
-            set_prober(&channel, Arc::clone(&p)).await;
+    for prober in probers {
+        for channel_name in prober.channels() {
+            set_prober(&channel_name, prober.clone()).await;
         }
     }
 }
 
-pub async fn set_notify(channel: &str, notifier: Arc<dyn Notify>) {
-    set_channel(channel);
-    if let Some(channel_entry) = CHANNELS.get(channel) {
-        let mut channel = channel_entry.write().await;
-        channel.set_notify(notifier);
+pub async fn set_prober(channel_name: &str, prober: Arc<dyn Prober>) {
+    set_channel(channel_name);
+    if let Some(channel) = get_channel(channel_name).await {
+        channel.add_prober(prober).await;
     }
 }
-
-pub async fn set_notifiers(notifiers: Vec<Arc<dyn Notify>>) {
+pub async fn set_notifiers(notifiers: Vec<Arc<dyn Notifier>>) {
     for notifier in notifiers {
-        for channel in notifier.channels() {
-            set_notify(&channel, Arc::clone(&notifier)).await;
+        for channel_name in notifier.channels() {
+            set_notifier(&channel_name, notifier.clone()).await;
         }
     }
 }
 
-pub async fn get_notifiers(channels: Vec<String>) -> HashMap<String, Arc<dyn Notify>> {
-    let mut notifiers = HashMap::new();
-    for channel in channels {
-        if let Some(channel_entry) = CHANNELS.get(&channel) {
-            let channel = channel_entry.read().await;
+pub async fn set_notifier(channel_name: &str, notifier: Arc<dyn Notifier>) {
+    set_channel(channel_name);
+    if let Some(channel) = get_channel(channel_name).await {
+        channel.add_notifier(notifier).await;
+    }
+}
 
-            for (name, notify) in &channel.notifiers {
-                notifiers.insert(name.clone(), Arc::clone(notify));
+pub async fn get_notifiers(channel_names: Vec<String>) -> Vec<Arc<dyn Notifier>> {
+    let mut notifiers = HashMap::new();
+
+    for channel_name in channel_names {
+        if let Some(channel) = get_channel(&channel_name).await {
+            let t = channel.notifiers.lock().await;
+            for notifier in t.values() {
+                notifiers.insert(notifier.name().to_string(), notifier);
             }
         }
     }
-    notifiers
+    notifiers.values().map(|v| Arc::clone(v)).collect()
 }
 
-pub async fn config_all_channels() {
-    for channel_entry in CHANNELS.iter() {
-        let mut channel = channel_entry.value().write().await;
-
-        channel.configure();
-    }
-}
-
+/// Watches for events on all channels.
 pub async fn watch_for_all_events() {
-    for channel_entry in CHANNELS.iter() {
-        let channel = Arc::clone(channel_entry.value());
-        tokio::spawn(async move {
-            let mut channel = channel.write().await;
-            channel.watch_event().await;
-        });
-    }
+    let all_channels = get_all_channels();
+    let notify_done = ALL_DONE.clone();
+
+    tokio::spawn(async move {
+        for channel in all_channels {
+            let notify_done = notify_done.clone();
+            tokio::spawn(async move {
+                channel.watch_event().await;
+                notify_done.notify_one();
+            });
+        }
+    });
 }
 
+/// Sends a done signal to all channels.
 pub async fn all_done() {
-    for channel_entry in CHANNELS.iter() {
-        let channel = channel_entry.value().read().await;
-        channel.done();
+    for channel in get_all_channels() {
+        channel.stop().await;
     }
+    ALL_DONE.notified().await;
 }
 
 #[cfg(test)]

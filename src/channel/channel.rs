@@ -1,63 +1,38 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::{collections::HashMap, sync::atomic::AtomicBool, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, Mutex, Notify};
 
-use crate::{global, DefaultNotify, DefaultProbe, Format, Notify, ProbeResult, Prober, Status};
+use crate::{global, DefaultNotify, DefaultProbe, Format, Notifier, ProbeResult, Prober, Status};
 
 pub struct Channel {
     name: String,
-    probers: HashMap<String, Arc<dyn Prober>>,
-    pub(crate) notifiers: HashMap<String, Arc<dyn Notify>>,
-    is_watch: AtomicBool,
-    is_done: AtomicBool,
-    results_tx: Option<mpsc::UnboundedSender<ProbeResult>>,
-    results_rx: Option<mpsc::UnboundedReceiver<ProbeResult>>,
+    probers: Mutex<HashMap<String, Arc<dyn Prober>>>,
+    pub(crate) notifiers: Mutex<HashMap<String, Arc<dyn Notifier>>>,
+    stop_notify: Arc<Notify>,
+    event_tx: broadcast::Sender<ProbeResult>,
 }
 
 impl Channel {
     pub fn new(name: &str) -> Self {
-        Self {
+        let (event_tx, _) = broadcast::channel(100);
+        Channel {
             name: name.to_string(),
-            probers: HashMap::new(),
-            notifiers: HashMap::new(),
-            is_watch: AtomicBool::new(false),
-            is_done: AtomicBool::new(false),
-            results_tx: None,
-            results_rx: None,
+            probers: Mutex::new(HashMap::new()),
+            notifiers: Mutex::new(HashMap::new()),
+            stop_notify: Arc::new(Notify::new()),
+            event_tx,
         }
-    }
-
-    pub fn configure(&mut self) {
-        let (results_tx, results_rx) = mpsc::unbounded_channel();
-
-        self.results_tx = Some(results_tx);
-        self.results_rx = Some(results_rx);
-    }
-
-    pub fn done(&self) {
-        self.is_done.store(true, Ordering::SeqCst);
-    }
-
-    pub fn channel(&mut self) -> Option<&mut mpsc::UnboundedReceiver<ProbeResult>> {
-        self.results_rx.as_mut()
-    }
-
-    pub fn send(&self, result: ProbeResult) -> Result<()> {
-        if let Some(results_tx) = self.results_tx.as_ref() {
-            results_tx.send(result)?;
-        }
-        Ok(())
     }
 
     pub fn get_prober(&self, name: &str) -> Option<&Arc<dyn Prober>> {
         self.probers.get(name)
     }
 
-    pub fn set_prober(&mut self, prober: Arc<dyn Prober>) {
-        if self.probers.contains_key(prober.name()) {
+    pub async fn add_prober(&self, prober: Arc<dyn Prober>) {
+        let mut probers = self.probers.lock().await;
+        if probers.contains_key(prober.name()) {
             log::warn!(
                 "Prober [{} - {}] name is duplicated, ignored!",
                 prober.kind(),
@@ -65,27 +40,29 @@ impl Channel {
             );
             return;
         }
-        self.probers.insert(prober.name().to_string(), prober);
+        probers.insert(prober.name().to_string(), prober);
     }
 
-    pub fn set_probers(&mut self, probers: Vec<Arc<dyn Prober>>) {
+    pub async fn add_probers(&self, probers: Vec<Arc<dyn Prober>>) {
         for p in probers {
-            self.set_prober(p)
+            self.add_prober(p).await
         }
     }
 
-    pub fn get_notify(&self, name: &str) -> Option<&Arc<dyn Notify>> {
-        self.notifiers.get(name)
+    pub async fn get_notifier(&self, name: &str) -> Option<Arc<dyn Notifier>> {
+        let notifiers = self.notifiers.lock().await;
+        notifiers.get(name).map(|v| Arc::clone(v))
     }
 
-    pub fn set_notifiers(&mut self, notifiers: Vec<Arc<dyn Notify>>) {
+    pub async fn add_notifiers(&self, notifiers: Vec<Arc<dyn Notifier>>) {
         for n in notifiers {
-            self.set_notify(n);
+            self.add_notifier(n).await;
         }
     }
 
-    pub fn set_notify(&mut self, notifier: Arc<dyn Notify>) {
-        if self.notifiers.contains_key(notifier.name()) {
+    pub async fn add_notifier(&self, notifier: Arc<dyn Notifier>) {
+        let mut notifiers = self.notifiers.lock().await;
+        if notifiers.contains_key(notifier.name()) {
             log::warn!(
                 "Notifier [{} - {}] name is duplicated, ignored!",
                 notifier.kind(),
@@ -93,38 +70,26 @@ impl Channel {
             );
             return;
         }
-        self.notifiers.insert(notifier.name().to_string(), notifier);
+        notifiers.insert(notifier.name().to_string(), notifier);
     }
 
-    pub async fn watch_event(&mut self) {
-        if let Err(_) =
-            self.is_watch
-                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::SeqCst)
-        {
-            log::warn!("[{}]: Channel is already watching!", self.name);
-            return;
-        }
+    pub async fn stop(&self) {
+        self.stop_notify.notify_waiters();
+    }
 
-        let _guard = scopeguard::guard((), |_| {
-            self.is_watch.store(false, Ordering::SeqCst);
-        });
+    pub async fn watch_event(&self) {
+        let mut event_rx = self.event_tx.subscribe();
+        let stop_notify = self.stop_notify.clone();
 
         loop {
-            if self.is_done.load(Ordering::SeqCst) {
-                log::info!(
-                    "[{}]: Received the done signal, channel exiting...",
-                    self.name
-                );
-                return;
-            }
-
-            if let Some(ref mut results_rx) = self.results_rx {
-                match results_rx.try_recv() {
-                    Ok(result) => {
-                        self.handle_result(result).await;
-                    }
-                    Err(_) => {
-                        continue;
+            tokio::select! {
+                _ = stop_notify.notified() => {
+            log::info!("[Channel / {}]: Received the done signal, channel exiting...",  self.name);
+                    break;
+                }
+                event = event_rx.recv() => {
+                    if let Ok(event) = event {
+                        self.handle_result(event).await;
                     }
                 }
             }
@@ -191,7 +156,8 @@ impl Channel {
         }
 
         let result = Arc::new(result);
-        for notifier in self.notifiers.values() {
+        let notifiers = self.notifiers.lock().await;
+        for notifier in notifiers.values() {
             let t = Arc::clone(&result);
             if true {
                 notifier.dry_notify(t);
@@ -212,10 +178,6 @@ mod tests {
     fn test_basic() {
         let mut ch = Channel::new("test");
 
-        ch.configure();
-
-        assert!(ch.channel().is_some());
-
         let probers: Vec<Arc<dyn Prober>> = vec![
             Arc::new(new_dummy_prober(
                 "http",
@@ -230,11 +192,11 @@ mod tests {
                 vec!["X".to_string()],
             )),
         ];
-        ch.set_probers(probers);
+        ch.add_probers(probers);
         assert_eq!(ch.probers.len(), 2);
         assert_eq!(ch.get_prober("dummy-XY").unwrap().kind(), "http");
 
-        let notifiers: Vec<Arc<dyn Notify>> = vec![
+        let notifiers: Vec<Arc<dyn Notifier>> = vec![
             Arc::new(new_dummy_notify(
                 "email",
                 "dummy-XY",
@@ -242,9 +204,9 @@ mod tests {
             )),
             Arc::new(new_dummy_notify("email", "dummy-X", vec!["X".to_string()])),
         ];
-        ch.set_notifiers(notifiers);
+        ch.add_notifiers(notifiers);
         assert_eq!(ch.notifiers.len(), 2);
-        assert_eq!(ch.get_notify("dummy-XY").unwrap().kind(), "email");
+        assert_eq!(ch.get_notifier("dummy-XY").unwrap().kind(), "email");
 
         // test duplicate name
         let n = Arc::new(new_dummy_notify(
@@ -252,8 +214,8 @@ mod tests {
             "dummy-X",
             vec!["X".to_string()],
         ));
-        ch.set_notify(n);
-        assert_eq!(ch.get_notify("dummy-X").unwrap().kind(), "email");
+        ch.add_notifier(n);
+        assert_eq!(ch.get_notifier("dummy-X").unwrap().kind(), "email");
 
         let p = Arc::new(new_dummy_prober(
             "ssh",
@@ -261,12 +223,12 @@ mod tests {
             "dummy-XY",
             vec!["X".to_string()],
         ));
-        ch.set_prober(p);
+        ch.add_prober(p);
         assert_eq!(ch.get_prober("dummy-XY").unwrap().kind(), "http");
     }
 }
 
-pub(crate) fn new_dummy_notify(kind: &str, name: &str, channels: Vec<String>) -> impl Notify {
+pub(crate) fn new_dummy_notify(kind: &str, name: &str, channels: Vec<String>) -> impl Notifier {
     let send_func = |_: String, _: String| -> Result<()> { Ok(()) };
 
     DefaultNotify {

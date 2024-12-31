@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use async_trait::async_trait;
+
 use super::{ProbeResult, Prober};
 
 pub struct DefaultProbe {
@@ -12,6 +14,7 @@ pub struct DefaultProbe {
     pub result: ProbeResult,
 }
 
+#[async_trait]
 impl Prober for DefaultProbe {
     fn kind(&self) -> &str {
         &self.kind
@@ -37,7 +40,7 @@ impl Prober for DefaultProbe {
         &self.result
     }
 
-    fn probe(&self) -> ProbeResult {
+    async fn probe(&self) -> ProbeResult {
         todo!()
     }
 }
