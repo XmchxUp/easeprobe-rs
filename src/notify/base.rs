@@ -32,7 +32,7 @@ impl Notifier for DefaultNotify {
         &self.channels
     }
 
-    async fn notify(&self, result: &ProbeResult) {
+    async fn notify(&self, result: Arc<ProbeResult>) {
         if self.dry {
             self.dry_notify(result);
             return;
@@ -44,7 +44,7 @@ impl Notifier for DefaultNotify {
         todo!()
     }
 
-    fn dry_notify(&self, res: &ProbeResult) {
+    fn dry_notify(&self, res: Arc<ProbeResult>) {
         log::info!(
             "[{} / {} / dry_notify] - {}",
             self.kind,

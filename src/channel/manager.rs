@@ -46,11 +46,12 @@ pub async fn set_probers(probers: Vec<Arc<dyn Prober>>) {
 }
 
 pub async fn set_prober(channel_name: &str, prober: Arc<dyn Prober>) {
-    set_channel(channel_name);
+    set_channel(channel_name).await;
     if let Some(channel) = get_channel(channel_name).await {
         channel.add_prober(prober).await;
     }
 }
+
 pub async fn set_notifiers(notifiers: Vec<Arc<dyn Notifier>>) {
     for notifier in notifiers {
         for channel_name in notifier.channels() {
@@ -60,48 +61,33 @@ pub async fn set_notifiers(notifiers: Vec<Arc<dyn Notifier>>) {
 }
 
 pub async fn set_notifier(channel_name: &str, notifier: Arc<dyn Notifier>) {
-    set_channel(channel_name);
+    set_channel(channel_name).await;
     if let Some(channel) = get_channel(channel_name).await {
         channel.add_notifier(notifier).await;
     }
 }
 
-pub async fn get_notifiers(channel_names: Vec<String>) -> Vec<Arc<dyn Notifier>> {
+pub async fn get_notifiers(channel_names: Vec<String>) -> HashMap<String, Arc<dyn Notifier>> {
     let mut notifiers = HashMap::new();
 
     for channel_name in channel_names {
         if let Some(channel) = get_channel(&channel_name).await {
-            let t = channel.notifiers.lock().await;
-            for notifier in t.values() {
-                notifiers.insert(notifier.name().to_string(), notifier);
+            for notifier in channel.notifiers.lock().await.values() {
+                notifiers.insert(notifier.name().to_string(), Arc::clone(notifier));
             }
         }
     }
-    notifiers.values().map(|v| Arc::clone(v)).collect()
-}
 
-/// Watches for events on all channels.
-pub async fn watch_for_all_events() {
-    let all_channels = get_all_channels();
-    let notify_done = ALL_DONE.clone();
-
-    tokio::spawn(async move {
-        for channel in all_channels {
-            let notify_done = notify_done.clone();
-            tokio::spawn(async move {
-                channel.watch_event().await;
-                notify_done.notify_one();
-            });
-        }
-    });
+    notifiers
 }
 
 /// Sends a done signal to all channels.
 pub async fn all_done() {
-    for channel in get_all_channels() {
+    let channel = CHANNELS.lock().await;
+    let all_channels = channel.values();
+    for channel in all_channels {
         channel.stop().await;
     }
-    ALL_DONE.notified().await;
 }
 
 #[cfg(test)]
@@ -114,7 +100,7 @@ mod tests {
     #[tokio::test]
     async fn test_manager() {
         let name = "test";
-        set_notify(
+        set_notifier(
             name,
             Arc::new(new_dummy_notify("email", "dummy", vec!["test".to_string()])),
         )
@@ -138,7 +124,7 @@ mod tests {
         )
         .await;
 
-        let test = get_channel(name);
+        let test = get_channel(name).await;
         assert!(test.is_some());
 
         let probers: Vec<Arc<dyn Prober>> = vec![
@@ -169,6 +155,6 @@ mod tests {
         ];
         set_probers(probers).await;
 
-        let x = get_channel("X").unwrap();
+        let _x = get_channel("X").await.unwrap();
     }
 }

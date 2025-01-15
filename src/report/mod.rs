@@ -24,6 +24,7 @@ pub enum Format {
 }
 
 impl Format {
+    #[allow(dead_code)]
     fn to_string(&self) -> &'static str {
         match self {
             Format::Unknown => "unknown",
@@ -41,6 +42,7 @@ impl Format {
         }
     }
 
+    #[allow(dead_code)]
     fn from_string(s: &str) -> Format {
         match s.to_lowercase().as_str() {
             "unknown" => Format::Unknown,
@@ -60,7 +62,7 @@ impl Format {
     }
 }
 
-pub type FormatFuncType = fn(&ProbeResult) -> String;
+pub type FormatFuncType = fn(Arc<ProbeResult>) -> String;
 pub type StatFormatFuncType = fn(Vec<Arc<dyn probe::Prober>>) -> String;
 
 #[derive(Debug)]

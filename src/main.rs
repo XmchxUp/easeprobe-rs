@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use easeprobe::{Channel, ProbeResult};
 
@@ -6,12 +8,11 @@ async fn main() -> Result<()> {
     logforth::stdout().apply();
 
     let mut c = Channel::new("empty");
-    c.configure();
+    c.configure().await;
 
-    c.send(ProbeResult::default())?;
+    c.send(ProbeResult::default()).await;
 
-    let v = c.channel().unwrap().recv().await.unwrap();
-    log::info!("{}", v.name);
+    tokio::time::sleep(Duration::new(2, 1000)).await;
 
     Ok(())
 }

@@ -2,32 +2,45 @@ use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
-use tokio::sync::{broadcast, Mutex, Notify};
+use tokio::sync::{mpsc, Mutex, Notify};
 
 use crate::{global, DefaultNotify, DefaultProbe, Format, Notifier, ProbeResult, Prober, Status};
+
+use super::is_dry_notify;
+
+const KIND: &str = "channel";
 
 pub struct Channel {
     name: String,
     probers: Mutex<HashMap<String, Arc<dyn Prober>>>,
-    pub(crate) notifiers: Mutex<HashMap<String, Arc<dyn Notifier>>>,
+    pub(crate) notifiers: Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
     stop_notify: Arc<Notify>,
-    event_tx: broadcast::Sender<ProbeResult>,
+    channel: Option<mpsc::Sender<ProbeResult>>,
 }
 
 impl Channel {
     pub fn new(name: &str) -> Self {
-        let (event_tx, _) = broadcast::channel(100);
         Channel {
             name: name.to_string(),
             probers: Mutex::new(HashMap::new()),
-            notifiers: Mutex::new(HashMap::new()),
+            notifiers: Arc::new(Mutex::new(HashMap::new())),
             stop_notify: Arc::new(Notify::new()),
-            event_tx,
+            channel: None,
         }
     }
 
-    pub fn get_prober(&self, name: &str) -> Option<&Arc<dyn Prober>> {
-        self.probers.get(name)
+    pub async fn configure(&mut self) {
+        let (channel_tx, channel_rx) = mpsc::channel(100);
+        self.channel = Some(channel_tx);
+        self.watch_event(channel_rx).await;
+    }
+
+    pub async fn get_prober(&self, name: &str) -> Option<Arc<dyn Prober>> {
+        let res = {
+            let probers = self.probers.lock().await;
+            probers.get(name).cloned()
+        };
+        res
     }
 
     pub async fn add_prober(&self, prober: Arc<dyn Prober>) {
@@ -77,32 +90,52 @@ impl Channel {
         self.stop_notify.notify_waiters();
     }
 
-    pub async fn watch_event(&self) {
-        let mut event_rx = self.event_tx.subscribe();
-        let stop_notify = self.stop_notify.clone();
-
-        loop {
-            tokio::select! {
-                _ = stop_notify.notified() => {
-            log::info!("[Channel / {}]: Received the done signal, channel exiting...",  self.name);
-                    break;
-                }
-                event = event_rx.recv() => {
-                    if let Ok(event) = event {
-                        self.handle_result(event).await;
-                    }
-                }
-            }
+    pub async fn send(&self, result: ProbeResult) {
+        if let Err(e) = self.channel.as_ref().unwrap().send(result).await {
+            log::error!(
+                "[{} / {}]: Failed to send probe result: {}",
+                KIND,
+                self.name,
+                e
+            );
         }
     }
 
-    async fn handle_result(&self, mut result: ProbeResult) {
+    pub async fn watch_event(&self, mut channel: mpsc::Receiver<ProbeResult>) {
+        let stop_notify = Arc::clone(&self.stop_notify);
+        let channel_name = self.name.clone();
+        let notifiers = Arc::clone(&self.notifiers);
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = stop_notify.notified() => {
+                        log::info!("[{} / {}]: Received the done signal, channel exiting...", KIND, channel_name);
+                        break;
+                    }
+                    result = channel.recv() => {
+                        if let Some(result) = result {
+                            Self::handle_result(&channel_name, result,&notifiers).await;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    async fn handle_result(
+        channel_name: &String,
+        mut result: ProbeResult,
+        notifiers: &Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
+    ) {
         // if it is the first time, and the status is UP, no need notify
         if result.pre_status == Status::Init && result.status == Status::Up {
             log::debug!(
-                "[{}]: {} - Initial Status [{}] == [{}], no notification.",
-                self.name,
+                "[{} / {}]: {} ({}) - Initial Status [{}] == [{}], no notification.",
+                KIND,
+                channel_name,
                 result.name,
+                result.endpoint,
                 result.pre_status,
                 result.status
             );
@@ -114,9 +147,11 @@ impl Channel {
             && (result.status == Status::Up || result.status == Status::Init)
         {
             log::debug!(
-                "[{}]: {} - Status no change [{}] == [{}], no notification.",
-                self.name,
+                "[{} / {}]: {} ({}) - Status no change [{}] == [{}], no notification.",
+                KIND,
+                channel_name,
                 result.name,
+                result.endpoint,
                 result.pre_status,
                 result.status
             );
@@ -132,34 +167,40 @@ impl Channel {
         // if the status is DOWN, check the notification strategy
         if result.status == Status::Down && !nsd.need_to_send_notification() {
             log::debug!(
-                "[{}]: {} - Don't meet the notification condition, no notification.",
-                self.name,
-                result.name
+                "[{} / {}]: {} ({}) - Don't meet the notification condition, no notification.",
+                KIND,
+                channel_name,
+                result.name,
+                result.endpoint
             );
             return;
         }
 
         if result.pre_status != result.status {
             log::info!(
-                "[{}]: {} - Status changed [{}] ==> [{}], sending notification...",
-                self.name,
+                "[{} / {}]: {} ({}) - Status changed [{}] ==> [{}], sending notification...",
+                KIND,
+                channel_name,
                 result.name,
+                result.endpoint,
                 result.pre_status,
                 result.status
             );
         } else {
             log::debug!(
-                "[{}]: {} - Meet the notification condition, sending notification...",
-                self.name,
-                result.name
+                "[{} / {}]: {} ({}) - Meet the notification condition, sending notification...",
+                KIND,
+                channel_name,
+                result.name,
+                result.endpoint
             );
         }
 
         let result = Arc::new(result);
-        let notifiers = self.notifiers.lock().await;
+        let notifiers = notifiers.lock().await;
         for notifier in notifiers.values() {
             let t = Arc::clone(&result);
-            if true {
+            if is_dry_notify() {
                 notifier.dry_notify(t);
             } else {
                 let notifier_clone = Arc::clone(notifier);
@@ -174,9 +215,9 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn test_basic() {
-        let mut ch = Channel::new("test");
+    #[tokio::test]
+    async fn test_basic() {
+        let ch = Channel::new("test");
 
         let probers: Vec<Arc<dyn Prober>> = vec![
             Arc::new(new_dummy_prober(
@@ -192,9 +233,9 @@ mod tests {
                 vec!["X".to_string()],
             )),
         ];
-        ch.add_probers(probers);
-        assert_eq!(ch.probers.len(), 2);
-        assert_eq!(ch.get_prober("dummy-XY").unwrap().kind(), "http");
+        ch.add_probers(probers).await;
+        assert_eq!(ch.probers.lock().await.len(), 2);
+        assert_eq!(ch.get_prober("dummy-XY").await.unwrap().kind(), "http");
 
         let notifiers: Vec<Arc<dyn Notifier>> = vec![
             Arc::new(new_dummy_notify(
@@ -204,9 +245,9 @@ mod tests {
             )),
             Arc::new(new_dummy_notify("email", "dummy-X", vec!["X".to_string()])),
         ];
-        ch.add_notifiers(notifiers);
-        assert_eq!(ch.notifiers.len(), 2);
-        assert_eq!(ch.get_notifier("dummy-XY").unwrap().kind(), "email");
+        ch.add_notifiers(notifiers).await;
+        assert_eq!(ch.notifiers.lock().await.len(), 2);
+        assert_eq!(ch.get_notifier("dummy-XY").await.unwrap().kind(), "email");
 
         // test duplicate name
         let n = Arc::new(new_dummy_notify(
@@ -214,8 +255,8 @@ mod tests {
             "dummy-X",
             vec!["X".to_string()],
         ));
-        ch.add_notifier(n);
-        assert_eq!(ch.get_notifier("dummy-X").unwrap().kind(), "email");
+        ch.add_notifier(n).await;
+        assert_eq!(ch.get_notifier("dummy-X").await.unwrap().kind(), "email");
 
         let p = Arc::new(new_dummy_prober(
             "ssh",
@@ -223,11 +264,12 @@ mod tests {
             "dummy-XY",
             vec!["X".to_string()],
         ));
-        ch.add_prober(p);
-        assert_eq!(ch.get_prober("dummy-XY").unwrap().kind(), "http");
+        ch.add_prober(p).await;
+        assert_eq!(ch.get_prober("dummy-XY").await.unwrap().kind(), "http");
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn new_dummy_notify(kind: &str, name: &str, channels: Vec<String>) -> impl Notifier {
     let send_func = |_: String, _: String| -> Result<()> { Ok(()) };
 
@@ -243,6 +285,7 @@ pub(crate) fn new_dummy_notify(kind: &str, name: &str, channels: Vec<String>) ->
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn new_dummy_prober(
     kind: &str,
     tag: &str,
