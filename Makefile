@@ -17,3 +17,6 @@ test:
 release:
 	cargo build --release
 	cp ./target/release/easeprobe .
+
+cloc:
+	cloc src/

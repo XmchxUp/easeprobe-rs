@@ -33,7 +33,8 @@ pub async fn get_channel(name: &str) -> Option<Arc<Channel>> {
 pub async fn set_channel(name: &str) {
     let mut channels = CHANNELS.lock().await;
     if !channels.contains_key(name) {
-        channels.insert(name.to_string(), Arc::new(Channel::new(name)));
+        let ch = Channel::new(name).await;
+        channels.insert(name.to_string(), Arc::new(ch));
     }
 }
 
@@ -90,6 +91,11 @@ pub async fn all_done() {
     }
 }
 
+pub async fn get_all_channels() -> HashMap<String, Arc<Channel>> {
+    let channel = CHANNELS.lock().await;
+    channel.clone()
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -124,8 +130,7 @@ mod tests {
         )
         .await;
 
-        let test = get_channel(name).await;
-        assert!(test.is_some());
+        let test = get_channel(name).await.unwrap();
 
         let probers: Vec<Arc<dyn Prober>> = vec![
             Arc::new(new_dummy_prober(
@@ -155,6 +160,48 @@ mod tests {
         ];
         set_probers(probers).await;
 
-        let _x = get_channel("X").await.unwrap();
+        assert_eq!(
+            "dummy-ALL",
+            test.get_prober("dummy-ALL").await.unwrap().name()
+        );
+
+        let x = get_channel("X").await.unwrap();
+        assert!(x.get_prober("dummy-X").await.is_some());
+        assert!(x.get_prober("dummy-XY").await.is_some());
+        assert_eq!("dummy-X", x.get_prober("dummy-X").await.unwrap().name());
+        assert_eq!("dummy-XY", x.get_prober("dummy-XY").await.unwrap().name());
+        assert_eq!("dummy-ALL", x.get_prober("dummy-ALL").await.unwrap().name());
+
+        let y = get_channel("Y").await.unwrap();
+        assert!(y.get_prober("dummy-Y").await.is_some());
+        assert!(y.get_prober("dummy-XY").await.is_some());
+        assert_eq!("dummy-Y", y.get_prober("dummy-Y").await.unwrap().name());
+        assert_eq!("dummy-XY", y.get_prober("dummy-XY").await.unwrap().name());
+        assert_eq!("dummy-ALL", y.get_prober("dummy-ALL").await.unwrap().name());
+
+        let notifiers: Vec<Arc<dyn Notifier>> = vec![
+            Arc::new(new_dummy_notify(
+                "email",
+                "dummy-XY",
+                vec!["X".to_string(), "Y".to_string()],
+            )),
+            Arc::new(new_dummy_notify("email", "dummy-X", vec!["X".to_string()])),
+        ];
+        set_notifiers(notifiers).await;
+
+        assert!(x.get_notifier("dummy-X").await.is_some());
+        assert!(x.get_notifier("dummy-XY").await.is_some());
+        assert_eq!("dummy-X", x.get_notifier("dummy-X").await.unwrap().name());
+        assert_eq!("dummy-XY", x.get_notifier("dummy-XY").await.unwrap().name());
+
+        assert!(y.get_notifier("dummy-X").await.is_none());
+        assert!(y.get_notifier("dummy-XY").await.is_some());
+        assert_eq!("dummy-XY", y.get_notifier("dummy-XY").await.unwrap().name());
+
+        let chs = get_all_channels().await;
+        assert_eq!(3, chs.len());
+        assert!(chs.get("test").is_some());
+        assert!(chs.get("X").is_some());
+        assert!(chs.get("Y").is_some());
     }
 }

@@ -15,24 +15,21 @@ pub struct Channel {
     probers: Mutex<HashMap<String, Arc<dyn Prober>>>,
     pub(crate) notifiers: Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
     stop_notify: Arc<Notify>,
-    channel: Option<mpsc::Sender<ProbeResult>>,
+    channel: mpsc::Sender<ProbeResult>,
 }
 
 impl Channel {
-    pub fn new(name: &str) -> Self {
-        Channel {
+    pub async fn new(name: &str) -> Self {
+        let (channel_tx, channel_rx) = mpsc::channel(100);
+        let res = Channel {
             name: name.to_string(),
             probers: Mutex::new(HashMap::new()),
             notifiers: Arc::new(Mutex::new(HashMap::new())),
             stop_notify: Arc::new(Notify::new()),
-            channel: None,
-        }
-    }
-
-    pub async fn configure(&mut self) {
-        let (channel_tx, channel_rx) = mpsc::channel(100);
-        self.channel = Some(channel_tx);
-        self.watch_event(channel_rx).await;
+            channel: channel_tx,
+        };
+        res.watch_event(channel_rx).await;
+        res
     }
 
     pub async fn get_prober(&self, name: &str) -> Option<Arc<dyn Prober>> {
@@ -91,7 +88,7 @@ impl Channel {
     }
 
     pub async fn send(&self, result: ProbeResult) {
-        if let Err(e) = self.channel.as_ref().unwrap().send(result).await {
+        if let Err(e) = self.channel.send(result).await {
             log::error!(
                 "[{} / {}]: Failed to send probe result: {}",
                 KIND,
@@ -217,7 +214,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn test_basic() {
-        let ch = Channel::new("test");
+        let ch = Channel::new("test").await;
 
         let probers: Vec<Arc<dyn Prober>> = vec![
             Arc::new(new_dummy_prober(

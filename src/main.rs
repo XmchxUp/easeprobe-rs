@@ -7,8 +7,7 @@ use easeprobe::{Channel, ProbeResult};
 async fn main() -> Result<()> {
     logforth::stdout().apply();
 
-    let mut c = Channel::new("empty");
-    c.configure().await;
+    let c = Channel::new("empty").await;
 
     c.send(ProbeResult::default()).await;
 
