@@ -38,15 +38,19 @@ pub async fn set_channel(name: &str) {
     }
 }
 
-pub async fn set_probers(probers: Vec<Arc<dyn Prober>>) {
+pub async fn set_probers(probers: Vec<Arc<Mutex<dyn Prober>>>) {
     for prober in probers {
-        for channel_name in prober.channels() {
-            set_prober(&channel_name, prober.clone()).await;
+        let channels = {
+            let p = prober.lock().await;
+            p.channels()
+        };
+        for channel_name in channels {
+            set_prober(&channel_name, Arc::clone(&prober)).await;
         }
     }
 }
 
-pub async fn set_prober(channel_name: &str, prober: Arc<dyn Prober>) {
+pub async fn set_prober(channel_name: &str, prober: Arc<Mutex<dyn Prober>>) {
     set_channel(channel_name).await;
     if let Some(channel) = get_channel(channel_name).await {
         channel.add_prober(prober).await;
@@ -132,7 +136,7 @@ mod tests {
 
         let test = get_channel(name).await.unwrap();
 
-        let probers: Vec<Arc<dyn Prober>> = vec![
+        let probers: Vec<Arc<Mutex<dyn Prober>>> = vec![
             Arc::new(new_dummy_prober(
                 "http",
                 "XY",
@@ -162,22 +166,45 @@ mod tests {
 
         assert_eq!(
             "dummy-ALL",
-            test.get_prober("dummy-ALL").await.unwrap().name()
+            test.get_prober("dummy-ALL")
+                .await
+                .unwrap()
+                .lock()
+                .await
+                .name()
         );
 
         let x = get_channel("X").await.unwrap();
         assert!(x.get_prober("dummy-X").await.is_some());
         assert!(x.get_prober("dummy-XY").await.is_some());
-        assert_eq!("dummy-X", x.get_prober("dummy-X").await.unwrap().name());
-        assert_eq!("dummy-XY", x.get_prober("dummy-XY").await.unwrap().name());
-        assert_eq!("dummy-ALL", x.get_prober("dummy-ALL").await.unwrap().name());
+        assert_eq!(
+            "dummy-X",
+            x.get_prober("dummy-X").await.unwrap().lock().await.name()
+        );
+        assert_eq!(
+            "dummy-XY",
+            x.get_prober("dummy-XY").await.unwrap().lock().await.name()
+        );
+        assert_eq!(
+            "dummy-ALL",
+            x.get_prober("dummy-ALL").await.unwrap().lock().await.name()
+        );
 
         let y = get_channel("Y").await.unwrap();
         assert!(y.get_prober("dummy-Y").await.is_some());
         assert!(y.get_prober("dummy-XY").await.is_some());
-        assert_eq!("dummy-Y", y.get_prober("dummy-Y").await.unwrap().name());
-        assert_eq!("dummy-XY", y.get_prober("dummy-XY").await.unwrap().name());
-        assert_eq!("dummy-ALL", y.get_prober("dummy-ALL").await.unwrap().name());
+        assert_eq!(
+            "dummy-Y",
+            y.get_prober("dummy-Y").await.unwrap().lock().await.name()
+        );
+        assert_eq!(
+            "dummy-XY",
+            y.get_prober("dummy-XY").await.unwrap().lock().await.name()
+        );
+        assert_eq!(
+            "dummy-ALL",
+            y.get_prober("dummy-ALL").await.unwrap().lock().await.name()
+        );
 
         let notifiers: Vec<Arc<dyn Notifier>> = vec![
             Arc::new(new_dummy_notify(

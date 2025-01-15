@@ -1,3 +1,5 @@
+mod probe;
+pub use probe::*;
 use std::time::Duration;
 
 #[derive(Default)]

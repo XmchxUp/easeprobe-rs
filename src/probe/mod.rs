@@ -14,9 +14,10 @@ pub use base::*;
 pub trait Prober: Send + Sync {
     fn kind(&self) -> &str;
     fn name(&self) -> &str;
-    fn channels(&self) -> &Vec<String>;
+    fn channels(&self) -> Vec<String>;
     fn timeout(&self) -> &Duration;
     fn interval(&self) -> &Duration;
     fn result(&self) -> &ProbeResult;
-    async fn probe(&self) -> ProbeResult;
+    async fn probe(&mut self) -> ProbeResult;
+    fn config(&mut self);
 }

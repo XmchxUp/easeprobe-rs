@@ -1,21 +1,25 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 
 use super::{ProbeResult, Prober};
 
-pub struct DefaultProbe {
+pub type ProbeFuncType = fn() -> Option<String>;
+
+#[derive(Default)]
+pub struct DefaultProber {
     pub kind: String,
     pub name: String,
     pub tag: String,
     pub channels: Vec<String>,
     pub timeout: Duration,
     pub interval: Duration,
-    pub result: ProbeResult,
+    pub probe_result: ProbeResult,
+    pub probe_fn: Option<ProbeFuncType>,
 }
 
 #[async_trait]
-impl Prober for DefaultProbe {
+impl Prober for DefaultProber {
     fn kind(&self) -> &str {
         &self.kind
     }
@@ -24,8 +28,8 @@ impl Prober for DefaultProbe {
         &self.name
     }
 
-    fn channels(&self) -> &Vec<String> {
-        &self.channels
+    fn channels(&self) -> Vec<String> {
+        self.channels.clone()
     }
 
     fn timeout(&self) -> &Duration {
@@ -37,11 +41,29 @@ impl Prober for DefaultProbe {
     }
 
     fn result(&self) -> &ProbeResult {
-        &self.result
+        &self.probe_result
     }
 
-    async fn probe(&self) -> ProbeResult {
-        todo!()
+    async fn probe(&mut self) -> ProbeResult {
+        if self.probe_fn.is_none() {
+            return self.probe_result.clone();
+        }
+
+        let now = SystemTime::now();
+
+        self.probe_result.start_time = now;
+        self.probe_result.start_timestamp = now.duration_since(UNIX_EPOCH).unwrap().as_millis();
+
+        let res = self.probe_fn.unwrap()();
+        self.probe_result.round_trip_time = now.elapsed().unwrap();
+        println!("{:?}", res);
+
+        self.probe_result.clone()
+    }
+
+    fn config(&mut self) {
+        self.probe_fn = Some(|| -> Option<String> { Some("probe_fn".to_string()) });
+        self.channels.push("test".to_string());
     }
 }
 

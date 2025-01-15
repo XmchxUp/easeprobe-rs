@@ -5,12 +5,12 @@ use std::{
 
 use super::{NotificationStrategyData, Status};
 
-// #[derive(Clone)]
+#[derive(Clone)]
 pub struct ProbeResult {
     pub name: String,
     pub endpoint: String,
     pub start_time: SystemTime,
-    pub start_timestamp: i64,
+    pub start_timestamp: u128,
     pub round_trip_time: Duration,
     pub status: Status,
     pub pre_status: Status,
@@ -56,7 +56,7 @@ impl ProbeResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stat {
     pub since: SystemTime,
     pub total: i64,

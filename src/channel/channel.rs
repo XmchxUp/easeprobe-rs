@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex, Notify};
 
-use crate::{global, DefaultNotify, DefaultProbe, Format, Notifier, ProbeResult, Prober, Status};
+use crate::{global, DefaultNotify, DefaultProber, Format, Notifier, ProbeResult, Prober, Status};
 
 use super::is_dry_notify;
 
@@ -12,7 +12,7 @@ const KIND: &str = "channel";
 
 pub struct Channel {
     name: String,
-    probers: Mutex<HashMap<String, Arc<dyn Prober>>>,
+    probers: Mutex<HashMap<String, Arc<Mutex<dyn Prober>>>>,
     pub(crate) notifiers: Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
     stop_notify: Arc<Notify>,
     channel: mpsc::Sender<ProbeResult>,
@@ -32,7 +32,7 @@ impl Channel {
         res
     }
 
-    pub async fn get_prober(&self, name: &str) -> Option<Arc<dyn Prober>> {
+    pub async fn get_prober(&self, name: &str) -> Option<Arc<Mutex<dyn Prober>>> {
         let res = {
             let probers = self.probers.lock().await;
             probers.get(name).cloned()
@@ -40,20 +40,23 @@ impl Channel {
         res
     }
 
-    pub async fn add_prober(&self, prober: Arc<dyn Prober>) {
+    pub async fn add_prober(&self, prober: Arc<Mutex<dyn Prober>>) {
+        let prober_clone = Arc::clone(&prober);
+
         let mut probers = self.probers.lock().await;
-        if probers.contains_key(prober.name()) {
+        let p = prober.lock().await;
+        if probers.contains_key(p.name()) {
             log::warn!(
                 "Prober [{} - {}] name is duplicated, ignored!",
-                prober.kind(),
-                prober.name()
+                p.kind(),
+                p.name()
             );
             return;
         }
-        probers.insert(prober.name().to_string(), prober);
+        probers.insert(p.name().to_string(), prober_clone);
     }
 
-    pub async fn add_probers(&self, probers: Vec<Arc<dyn Prober>>) {
+    pub async fn add_probers(&self, probers: Vec<Arc<Mutex<dyn Prober>>>) {
         for p in probers {
             self.add_prober(p).await
         }
@@ -216,7 +219,7 @@ mod tests {
     async fn test_basic() {
         let ch = Channel::new("test").await;
 
-        let probers: Vec<Arc<dyn Prober>> = vec![
+        let probers: Vec<Arc<Mutex<dyn Prober>>> = vec![
             Arc::new(new_dummy_prober(
                 "http",
                 "XY",
@@ -232,7 +235,10 @@ mod tests {
         ];
         ch.add_probers(probers).await;
         assert_eq!(ch.probers.lock().await.len(), 2);
-        assert_eq!(ch.get_prober("dummy-XY").await.unwrap().kind(), "http");
+        assert_eq!(
+            ch.get_prober("dummy-XY").await.unwrap().lock().await.kind(),
+            "http"
+        );
 
         let notifiers: Vec<Arc<dyn Notifier>> = vec![
             Arc::new(new_dummy_notify(
@@ -262,7 +268,10 @@ mod tests {
             vec!["X".to_string()],
         ));
         ch.add_prober(p).await;
-        assert_eq!(ch.get_prober("dummy-XY").await.unwrap().kind(), "http");
+        assert_eq!(
+            ch.get_prober("dummy-XY").await.unwrap().lock().await.kind(),
+            "http"
+        );
     }
 }
 
@@ -288,14 +297,15 @@ pub(crate) fn new_dummy_prober(
     tag: &str,
     name: &str,
     channels: Vec<String>,
-) -> impl Prober {
-    DefaultProbe {
+) -> Mutex<impl Prober> {
+    Mutex::new(DefaultProber {
         kind: kind.to_string(),
         name: name.to_string(),
         tag: tag.to_string(),
         channels,
         timeout: Duration::new(1, 0),
         interval: Duration::new(5, 0),
-        result: ProbeResult::default(),
-    }
+        probe_result: ProbeResult::default(),
+        probe_fn: None,
+    })
 }
