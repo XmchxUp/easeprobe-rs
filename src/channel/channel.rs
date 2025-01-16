@@ -1,9 +1,12 @@
+use anyhow::Result;
+use async_trait::async_trait;
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 
 use crate::{
-    global, DefaultNotifier, DefaultProber, Format, Notifier, ProbeResult, Prober, Status,
+    global, DefaultNotifier, DefaultProber, Format, Notifier, ProbeBehavior, ProbeResult, Prober,
+    Status,
 };
 
 use super::manager::is_dry_notify;
@@ -328,7 +331,16 @@ pub(crate) fn new_dummy_prober(
         channels,
         timeout: Duration::new(1, 0),
         interval: Duration::new(5, 0),
-        probe_result: ProbeResult::default(),
-        probe_fn: None,
+        result: ProbeResult::default(),
+        behavior: DummyProbeBehavior,
     })
+}
+
+pub struct DummyProbeBehavior;
+
+#[async_trait]
+impl ProbeBehavior for DummyProbeBehavior {
+    async fn do_probe(&self) -> Result<(bool, String)> {
+        Ok((true, "Dummy probe succeeded".to_string()))
+    }
 }

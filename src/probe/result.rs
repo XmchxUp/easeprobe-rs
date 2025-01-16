@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use super::{NotificationStrategyData, Status};
+use super::{NotificationStrategyData, Status, StatusCounter};
 
 #[derive(Clone)]
 pub struct ProbeResult {
@@ -64,6 +64,7 @@ pub struct Stat {
     pub uptime: Duration,
     pub downtime: Duration,
     pub notification_strategy_data: NotificationStrategyData,
+    pub status_counter: StatusCounter,
 }
 
 impl Default for Stat {
@@ -75,6 +76,7 @@ impl Default for Stat {
             uptime: Default::default(),
             downtime: Default::default(),
             notification_strategy_data: Default::default(),
+            status_counter: StatusCounter::new(10),
         }
     }
 }
