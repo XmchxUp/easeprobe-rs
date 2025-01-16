@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{Notifier, Prober};
 
@@ -38,10 +38,10 @@ pub async fn set_channel(name: &str) {
     }
 }
 
-pub async fn set_probers(probers: Vec<Arc<Mutex<dyn Prober>>>) {
+pub async fn set_probers(probers: Vec<Arc<RwLock<dyn Prober>>>) {
     for prober in probers {
         let channels = {
-            let p = prober.lock().await;
+            let p = prober.read().await;
             p.channels()
         };
         for channel_name in channels {
@@ -50,35 +50,44 @@ pub async fn set_probers(probers: Vec<Arc<Mutex<dyn Prober>>>) {
     }
 }
 
-pub async fn set_prober(channel_name: &str, prober: Arc<Mutex<dyn Prober>>) {
+pub async fn set_prober(channel_name: &str, prober: Arc<RwLock<dyn Prober>>) {
     set_channel(channel_name).await;
     if let Some(channel) = get_channel(channel_name).await {
         channel.add_prober(prober).await;
     }
 }
 
-pub async fn set_notifiers(notifiers: Vec<Arc<dyn Notifier>>) {
+pub async fn set_notifiers(notifiers: Vec<Arc<RwLock<dyn Notifier>>>) {
     for notifier in notifiers {
-        for channel_name in notifier.channels() {
-            set_notifier(&channel_name, notifier.clone()).await;
+        let channels = {
+            let n = notifier.read().await;
+            n.channels()
+        };
+        for channel_name in channels {
+            set_notifier(&channel_name, Arc::clone(&notifier)).await;
         }
     }
 }
 
-pub async fn set_notifier(channel_name: &str, notifier: Arc<dyn Notifier>) {
+pub async fn set_notifier(channel_name: &str, notifier: Arc<RwLock<dyn Notifier>>) {
     set_channel(channel_name).await;
     if let Some(channel) = get_channel(channel_name).await {
         channel.add_notifier(notifier).await;
     }
 }
 
-pub async fn get_notifiers(channel_names: Vec<String>) -> HashMap<String, Arc<dyn Notifier>> {
+pub async fn get_notifiers(
+    channel_names: Vec<String>,
+) -> HashMap<String, Arc<RwLock<dyn Notifier>>> {
     let mut notifiers = HashMap::new();
 
     for channel_name in channel_names {
         if let Some(channel) = get_channel(&channel_name).await {
             for notifier in channel.notifiers.lock().await.values() {
-                notifiers.insert(notifier.name().to_string(), Arc::clone(notifier));
+                notifiers.insert(
+                    notifier.read().await.name().to_string(),
+                    Arc::clone(notifier),
+                );
             }
         }
     }
@@ -121,7 +130,7 @@ mod tests {
 
         let notifiers = get_notifiers(vec!["test".to_string()]).await;
         assert_eq!(notifiers.len(), 1);
-        assert_eq!(notifiers.get("dummy").unwrap().name(), "dummy");
+        assert_eq!(notifiers.get("dummy").unwrap().read().await.name(), "dummy");
 
         set_prober(
             name,
@@ -136,7 +145,7 @@ mod tests {
 
         let test = get_channel(name).await.unwrap();
 
-        let probers: Vec<Arc<Mutex<dyn Prober>>> = vec![
+        let probers: Vec<Arc<RwLock<dyn Prober>>> = vec![
             Arc::new(new_dummy_prober(
                 "http",
                 "XY",
@@ -169,7 +178,7 @@ mod tests {
             test.get_prober("dummy-ALL")
                 .await
                 .unwrap()
-                .lock()
+                .read()
                 .await
                 .name()
         );
@@ -179,15 +188,15 @@ mod tests {
         assert!(x.get_prober("dummy-XY").await.is_some());
         assert_eq!(
             "dummy-X",
-            x.get_prober("dummy-X").await.unwrap().lock().await.name()
+            x.get_prober("dummy-X").await.unwrap().read().await.name()
         );
         assert_eq!(
             "dummy-XY",
-            x.get_prober("dummy-XY").await.unwrap().lock().await.name()
+            x.get_prober("dummy-XY").await.unwrap().read().await.name()
         );
         assert_eq!(
             "dummy-ALL",
-            x.get_prober("dummy-ALL").await.unwrap().lock().await.name()
+            x.get_prober("dummy-ALL").await.unwrap().read().await.name()
         );
 
         let y = get_channel("Y").await.unwrap();
@@ -195,18 +204,18 @@ mod tests {
         assert!(y.get_prober("dummy-XY").await.is_some());
         assert_eq!(
             "dummy-Y",
-            y.get_prober("dummy-Y").await.unwrap().lock().await.name()
+            y.get_prober("dummy-Y").await.unwrap().read().await.name()
         );
         assert_eq!(
             "dummy-XY",
-            y.get_prober("dummy-XY").await.unwrap().lock().await.name()
+            y.get_prober("dummy-XY").await.unwrap().read().await.name()
         );
         assert_eq!(
             "dummy-ALL",
-            y.get_prober("dummy-ALL").await.unwrap().lock().await.name()
+            y.get_prober("dummy-ALL").await.unwrap().read().await.name()
         );
 
-        let notifiers: Vec<Arc<dyn Notifier>> = vec![
+        let notifiers: Vec<Arc<RwLock<dyn Notifier>>> = vec![
             Arc::new(new_dummy_notify(
                 "email",
                 "dummy-XY",
@@ -218,12 +227,31 @@ mod tests {
 
         assert!(x.get_notifier("dummy-X").await.is_some());
         assert!(x.get_notifier("dummy-XY").await.is_some());
-        assert_eq!("dummy-X", x.get_notifier("dummy-X").await.unwrap().name());
-        assert_eq!("dummy-XY", x.get_notifier("dummy-XY").await.unwrap().name());
+        assert_eq!(
+            "dummy-X",
+            x.get_notifier("dummy-X").await.unwrap().read().await.name()
+        );
+        assert_eq!(
+            "dummy-XY",
+            x.get_notifier("dummy-XY")
+                .await
+                .unwrap()
+                .read()
+                .await
+                .name()
+        );
 
         assert!(y.get_notifier("dummy-X").await.is_none());
         assert!(y.get_notifier("dummy-XY").await.is_some());
-        assert_eq!("dummy-XY", y.get_notifier("dummy-XY").await.unwrap().name());
+        assert_eq!(
+            "dummy-XY",
+            y.get_notifier("dummy-XY")
+                .await
+                .unwrap()
+                .read()
+                .await
+                .name()
+        );
 
         let chs = get_all_channels().await;
         assert_eq!(3, chs.len());

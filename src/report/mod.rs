@@ -1,11 +1,14 @@
-use crate::{probe, ProbeResult};
+use crate::{ProbeResult, Prober};
+pub use common::*;
 use std::{
     collections::HashMap,
     sync::{Arc, LazyLock},
 };
+use tokio::sync::RwLock;
 
 mod result;
 use result::*;
+mod common;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
@@ -21,6 +24,11 @@ pub enum Format {
     Lark,
     SMS,
     Shell,
+}
+impl Default for Format {
+    fn default() -> Self {
+        Self::Unknown
+    }
 }
 
 impl Format {
@@ -63,7 +71,7 @@ impl Format {
 }
 
 pub type FormatFuncType = fn(Arc<ProbeResult>) -> String;
-pub type StatFormatFuncType = fn(Vec<Arc<dyn probe::Prober>>) -> String;
+pub type StatFormatFuncType = fn(Vec<Arc<RwLock<dyn Prober>>>) -> String;
 
 #[derive(Debug)]
 pub struct FormatFuncStruct {

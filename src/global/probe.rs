@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-pub struct ProbeSettings {
+#[derive(Default)]
+pub struct ProbeSetting {
     pub interval: Duration,
     pub timeout: Duration,
 }

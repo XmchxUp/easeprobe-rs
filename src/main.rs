@@ -1,52 +1,34 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use easeprobe::{get_channel, set_channel, set_probers, DefaultProber, Prober};
-use tokio::sync::Mutex;
+use easeprobe::{
+    cmd::config_probers, config_notifiers, manager, run_probers, DefaultNotifier, DefaultProber,
+    Notifier, Prober,
+};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     logforth::stdout().apply();
 
-    set_channel("test").await;
+    manager::set_channel("test").await;
 
-    let probers: Vec<Arc<Mutex<dyn Prober>>> = vec![Arc::new(Mutex::new(DefaultProber::default()))];
+    let mut prober = DefaultProber::default();
+    prober.probe_fn = Some(|| -> Option<String> { Some("Test".to_string()) });
+
+    let probers: Vec<Arc<RwLock<dyn Prober>>> = vec![Arc::new(RwLock::new(prober))];
     config_probers(&probers).await;
+    manager::set_probers(probers.clone()).await;
 
-    set_probers(probers.clone()).await;
+    let mut notifier = DefaultNotifier::default();
+    notifier.send_func = Some(|a: &str, b: &str| -> Result<()> { Ok(()) });
+
+    let notifiers: Vec<Arc<RwLock<dyn Notifier>>> = vec![Arc::new(RwLock::new(notifier))];
+    config_notifiers(&notifiers).await;
+    manager::set_notifiers(notifiers.clone()).await;
 
     run_probers(probers);
 
     tokio::time::sleep(Duration::new(30, 1000)).await;
-
     Ok(())
-}
-
-async fn config_probers(probers: &Vec<Arc<Mutex<dyn Prober>>>) {
-    for ele in probers {
-        ele.lock().await.config();
-    }
-}
-
-fn run_probers(probers: Vec<Arc<Mutex<dyn Prober>>>) {
-    for prober in probers {
-        let p = Arc::clone(&prober);
-        tokio::spawn(async move {
-            loop {
-                let (res, channels) = {
-                    let mut p = p.lock().await;
-
-                    (p.probe().await, p.channels())
-                };
-
-                for ch in channels {
-                    if let Some(ch) = get_channel(&ch).await {
-                        ch.send(res.clone()).await;
-                    }
-                }
-
-                tokio::time::sleep(Duration::new(1, 1000)).await;
-            }
-        });
-    }
 }

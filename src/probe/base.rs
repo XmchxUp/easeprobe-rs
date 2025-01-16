@@ -2,6 +2,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 
+use crate::{ProbeSetting, DEFAULT_CHANNEL_NAME};
+
 use super::{ProbeResult, Prober};
 
 pub type ProbeFuncType = fn() -> Option<String>;
@@ -16,6 +18,16 @@ pub struct DefaultProber {
     pub interval: Duration,
     pub probe_result: ProbeResult,
     pub probe_fn: Option<ProbeFuncType>,
+}
+
+impl DefaultProber {
+    fn log_title(&self) -> String {
+        if self.tag.is_empty() {
+            format!("[{} / {} / {}]", self.kind, self.tag, self.name)
+        } else {
+            format!("[{} / {}]", self.kind, self.name)
+        }
+    }
 }
 
 #[async_trait]
@@ -54,16 +66,17 @@ impl Prober for DefaultProber {
         self.probe_result.start_time = now;
         self.probe_result.start_timestamp = now.duration_since(UNIX_EPOCH).unwrap().as_millis();
 
-        let res = self.probe_fn.unwrap()();
+        let _stat = self.probe_fn.unwrap()();
         self.probe_result.round_trip_time = now.elapsed().unwrap();
-        println!("{:?}", res);
 
         self.probe_result.clone()
     }
 
-    fn config(&mut self) {
-        self.probe_fn = Some(|| -> Option<String> { Some("probe_fn".to_string()) });
-        self.channels.push("test".to_string());
+    fn config(&mut self, _setting: &ProbeSetting) {
+        if self.channels.is_empty() {
+            self.channels.push(DEFAULT_CHANNEL_NAME.to_string());
+        }
+        log::info!("Probe {} base options are configured!", self.log_title())
     }
 }
 

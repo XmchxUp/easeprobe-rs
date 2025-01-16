@@ -8,3 +8,5 @@ mod probe;
 pub use probe::*;
 mod global;
 pub use global::*;
+pub mod cmd;
+pub use cmd::*;

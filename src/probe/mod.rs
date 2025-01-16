@@ -10,6 +10,8 @@ pub use notification_strategy::*;
 mod base;
 pub use base::*;
 
+use crate::ProbeSetting;
+
 #[async_trait]
 pub trait Prober: Send + Sync {
     fn kind(&self) -> &str;
@@ -19,5 +21,5 @@ pub trait Prober: Send + Sync {
     fn interval(&self) -> &Duration;
     fn result(&self) -> &ProbeResult;
     async fn probe(&mut self) -> ProbeResult;
-    fn config(&mut self);
+    fn config(&mut self, setting: &ProbeSetting);
 }

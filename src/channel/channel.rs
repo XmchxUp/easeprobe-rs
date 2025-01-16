@@ -1,19 +1,21 @@
 use std::sync::Arc;
 use std::{collections::HashMap, time::Duration};
+use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 
-use anyhow::Result;
-use tokio::sync::{mpsc, Mutex, Notify};
+use crate::{
+    global, DefaultNotifier, DefaultProber, Format, Notifier, ProbeResult, Prober, Status,
+};
 
-use crate::{global, DefaultNotify, DefaultProber, Format, Notifier, ProbeResult, Prober, Status};
-
-use super::is_dry_notify;
+use super::manager::is_dry_notify;
 
 const KIND: &str = "channel";
 
+type Notifiers = Arc<Mutex<HashMap<String, Arc<RwLock<dyn Notifier>>>>>;
+
 pub struct Channel {
     name: String,
-    probers: Mutex<HashMap<String, Arc<Mutex<dyn Prober>>>>,
-    pub(crate) notifiers: Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
+    probers: Mutex<HashMap<String, Arc<RwLock<dyn Prober>>>>,
+    pub(crate) notifiers: Notifiers,
     stop_notify: Arc<Notify>,
     channel: mpsc::Sender<ProbeResult>,
 }
@@ -32,7 +34,7 @@ impl Channel {
         res
     }
 
-    pub async fn get_prober(&self, name: &str) -> Option<Arc<Mutex<dyn Prober>>> {
+    pub async fn get_prober(&self, name: &str) -> Option<Arc<RwLock<dyn Prober>>> {
         let res = {
             let probers = self.probers.lock().await;
             probers.get(name).cloned()
@@ -40,11 +42,11 @@ impl Channel {
         res
     }
 
-    pub async fn add_prober(&self, prober: Arc<Mutex<dyn Prober>>) {
+    pub async fn add_prober(&self, prober: Arc<RwLock<dyn Prober>>) {
         let prober_clone = Arc::clone(&prober);
 
         let mut probers = self.probers.lock().await;
-        let p = prober.lock().await;
+        let p = prober.read().await;
         if probers.contains_key(p.name()) {
             log::warn!(
                 "Prober [{} - {}] name is duplicated, ignored!",
@@ -56,34 +58,38 @@ impl Channel {
         probers.insert(p.name().to_string(), prober_clone);
     }
 
-    pub async fn add_probers(&self, probers: Vec<Arc<Mutex<dyn Prober>>>) {
+    pub async fn add_probers(&self, probers: Vec<Arc<RwLock<dyn Prober>>>) {
         for p in probers {
             self.add_prober(p).await
         }
     }
 
-    pub async fn get_notifier(&self, name: &str) -> Option<Arc<dyn Notifier>> {
+    pub async fn get_notifier(&self, name: &str) -> Option<Arc<RwLock<dyn Notifier>>> {
         let notifiers = self.notifiers.lock().await;
         notifiers.get(name).map(|v| Arc::clone(v))
     }
 
-    pub async fn add_notifiers(&self, notifiers: Vec<Arc<dyn Notifier>>) {
+    pub async fn add_notifiers(&self, notifiers: Vec<Arc<RwLock<dyn Notifier>>>) {
         for n in notifiers {
             self.add_notifier(n).await;
         }
     }
 
-    pub async fn add_notifier(&self, notifier: Arc<dyn Notifier>) {
+    pub async fn add_notifier(&self, notifier: Arc<RwLock<dyn Notifier>>) {
+        let notifier_clone = Arc::clone(&notifier);
+
         let mut notifiers = self.notifiers.lock().await;
-        if notifiers.contains_key(notifier.name()) {
+        let n = notifier.read().await;
+
+        if notifiers.contains_key(n.name()) {
             log::warn!(
                 "Notifier [{} - {}] name is duplicated, ignored!",
-                notifier.kind(),
-                notifier.name()
+                n.kind(),
+                n.name()
             );
             return;
         }
-        notifiers.insert(notifier.name().to_string(), notifier);
+        notifiers.insert(n.name().to_string(), notifier_clone);
     }
 
     pub async fn stop(&self) {
@@ -115,7 +121,7 @@ impl Channel {
                     }
                     result = channel.recv() => {
                         if let Some(result) = result {
-                            Self::handle_result(&channel_name, result,&notifiers).await;
+                            Self::handle_result(&channel_name, result, &notifiers).await;
                         }
                     }
                 }
@@ -123,11 +129,7 @@ impl Channel {
         });
     }
 
-    async fn handle_result(
-        channel_name: &String,
-        mut result: ProbeResult,
-        notifiers: &Arc<Mutex<HashMap<String, Arc<dyn Notifier>>>>,
-    ) {
+    async fn handle_result(channel_name: &String, mut result: ProbeResult, notifiers: &Notifiers) {
         // if it is the first time, and the status is UP, no need notify
         if result.pre_status == Status::Init && result.status == Status::Up {
             log::debug!(
@@ -199,13 +201,16 @@ impl Channel {
         let result = Arc::new(result);
         let notifiers = notifiers.lock().await;
         for notifier in notifiers.values() {
+            let n = notifier.read().await;
             let t = Arc::clone(&result);
             if is_dry_notify() {
-                notifier.dry_notify(t);
+                n.dry_notify(t);
             } else {
+                drop(n);
                 let notifier_clone = Arc::clone(notifier);
                 tokio::spawn(async move {
-                    notifier_clone.notify(t).await;
+                    let n = notifier_clone.read().await;
+                    n.notify(t).await;
                 });
             }
         }
@@ -219,7 +224,7 @@ mod tests {
     async fn test_basic() {
         let ch = Channel::new("test").await;
 
-        let probers: Vec<Arc<Mutex<dyn Prober>>> = vec![
+        let probers: Vec<Arc<RwLock<dyn Prober>>> = vec![
             Arc::new(new_dummy_prober(
                 "http",
                 "XY",
@@ -236,11 +241,11 @@ mod tests {
         ch.add_probers(probers).await;
         assert_eq!(ch.probers.lock().await.len(), 2);
         assert_eq!(
-            ch.get_prober("dummy-XY").await.unwrap().lock().await.kind(),
+            ch.get_prober("dummy-XY").await.unwrap().read().await.kind(),
             "http"
         );
 
-        let notifiers: Vec<Arc<dyn Notifier>> = vec![
+        let notifiers: Vec<Arc<RwLock<dyn Notifier>>> = vec![
             Arc::new(new_dummy_notify(
                 "email",
                 "dummy-XY",
@@ -250,7 +255,15 @@ mod tests {
         ];
         ch.add_notifiers(notifiers).await;
         assert_eq!(ch.notifiers.lock().await.len(), 2);
-        assert_eq!(ch.get_notifier("dummy-XY").await.unwrap().kind(), "email");
+        assert_eq!(
+            ch.get_notifier("dummy-XY")
+                .await
+                .unwrap()
+                .read()
+                .await
+                .kind(),
+            "email"
+        );
 
         // test duplicate name
         let n = Arc::new(new_dummy_notify(
@@ -259,7 +272,15 @@ mod tests {
             vec!["X".to_string()],
         ));
         ch.add_notifier(n).await;
-        assert_eq!(ch.get_notifier("dummy-X").await.unwrap().kind(), "email");
+        assert_eq!(
+            ch.get_notifier("dummy-X")
+                .await
+                .unwrap()
+                .read()
+                .await
+                .kind(),
+            "email"
+        );
 
         let p = Arc::new(new_dummy_prober(
             "ssh",
@@ -269,26 +290,28 @@ mod tests {
         ));
         ch.add_prober(p).await;
         assert_eq!(
-            ch.get_prober("dummy-XY").await.unwrap().lock().await.kind(),
+            ch.get_prober("dummy-XY").await.unwrap().read().await.kind(),
             "http"
         );
     }
 }
 
 #[allow(dead_code)]
-pub(crate) fn new_dummy_notify(kind: &str, name: &str, channels: Vec<String>) -> impl Notifier {
-    let send_func = |_: String, _: String| -> Result<()> { Ok(()) };
-
-    DefaultNotify {
+pub(crate) fn new_dummy_notify(
+    kind: &str,
+    name: &str,
+    channels: Vec<String>,
+) -> RwLock<impl Notifier> {
+    RwLock::new(DefaultNotifier {
         kind: kind.to_string(),
         name: name.to_string(),
         format: Format::Text,
-        send_func,
+        send_func: None,
         channels,
         dry: false,
         timeout: Duration::default(),
         retry: global::Retry::default(),
-    }
+    })
 }
 
 #[allow(dead_code)]
@@ -297,8 +320,8 @@ pub(crate) fn new_dummy_prober(
     tag: &str,
     name: &str,
     channels: Vec<String>,
-) -> Mutex<impl Prober> {
-    Mutex::new(DefaultProber {
+) -> RwLock<impl Prober> {
+    RwLock::new(DefaultProber {
         kind: kind.to_string(),
         name: name.to_string(),
         tag: tag.to_string(),
