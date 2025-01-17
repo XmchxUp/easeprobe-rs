@@ -53,8 +53,8 @@ impl<B: ProbeBehavior + Send + Sync> Prober for DefaultProber<B> {
         &self.interval
     }
 
-    fn result(&self) -> &ProbeResult {
-        &self.result
+    fn result(&mut self) -> &mut ProbeResult {
+        &mut self.result
     }
 
     async fn probe(&mut self) -> ProbeResult {
@@ -80,11 +80,12 @@ impl<B: ProbeBehavior + Send + Sync> Prober for DefaultProber<B> {
         self.result.clone()
     }
 
-    fn config(&mut self, _setting: &ProbeSetting) {
+    async fn config(&mut self, _setting: &ProbeSetting) -> Result<()> {
         if self.channels.is_empty() {
             self.channels.push(DEFAULT_CHANNEL_NAME.to_string());
         }
-        log::info!("Probe {} base options are configured!", self.log_title())
+        log::info!("Probe {} base options are configured!", self.log_title());
+        Ok(())
     }
 }
 

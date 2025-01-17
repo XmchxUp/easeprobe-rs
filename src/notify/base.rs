@@ -48,7 +48,7 @@ impl DefaultNotifier {
 
 #[async_trait]
 impl Notifier for DefaultNotifier {
-    fn config(&mut self, conf: &NotifierSetting) {
+    fn config(&mut self, conf: &NotifierSetting) -> Result<()> {
         let mut mode = "Live";
 
         if self.dry {
@@ -74,6 +74,7 @@ impl Notifier for DefaultNotifier {
             self.kind,
             self.name,
         );
+        Ok(())
     }
 
     fn kind(&self) -> &str {

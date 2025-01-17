@@ -24,9 +24,9 @@ pub trait Prober: Send + Sync {
     fn channels(&self) -> Vec<String>;
     fn timeout(&self) -> &Duration;
     fn interval(&self) -> &Duration;
-    fn result(&self) -> &ProbeResult;
+    fn result(&mut self) -> &mut ProbeResult;
     async fn probe(&mut self) -> ProbeResult;
-    fn config(&mut self, setting: &ProbeSetting);
+    async fn config(&mut self, setting: &ProbeSetting) -> Result<()>;
 }
 
 #[async_trait]

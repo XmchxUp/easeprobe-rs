@@ -1,8 +1,7 @@
-use std::{collections::HashMap, time::Duration};
-
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
-use reqwest::Method;
+use reqwest::{Client, Method, Url};
+use std::{collections::HashMap, time::Duration};
 
 use crate::ProbeSetting;
 
@@ -19,20 +18,46 @@ pub struct HttpProbeBehavior {
     pub body: Option<String>,
     pub success_codes: Vec<(u16, u16)>,
     pub proxy: Option<String>,
+    pub client: Option<Client>,
 }
 
 #[async_trait]
 impl ProbeBehavior for HttpProbeBehavior {
     async fn do_probe(&self) -> Result<(bool, String)> {
-        Ok((true, "aa".to_string()))
+        if let Some(client) = &self.client {
+            let mut request = client.request(self.method.clone(), &self.url);
+
+            if let Some(body) = &self.body {
+                request = request.body(body.clone());
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+
+            let valid = self
+                .success_codes
+                .iter()
+                .any(|&(start, end)| start <= status.as_u16() && status.as_u16() <= end);
+
+            // let body = response.text().await?;
+            let message = if valid {
+                format!("HTTP Status Code is {}", status)
+            } else {
+                format!(
+                    "HTTP Status Code is {}. It missed in {:?}",
+                    status, self.success_codes
+                )
+            };
+
+            return Ok((valid, message));
+        }
+        bail!("probe error")
     }
 }
 
 impl HttpProber {
     pub fn new(
-        kind: String,
         name: String,
-        tag: String,
         url: String,
         method: Method,
         headers: HashMap<String, String>,
@@ -45,18 +70,19 @@ impl HttpProber {
             method,
             headers,
             body,
-            success_codes: vec![(0, 0)],
+            success_codes: vec![(200, 299)],
             proxy: None,
+            client: None,
         };
 
         let default_prober = DefaultProber {
-            kind,
-            name,
-            tag,
+            kind: "http".to_string(),
+            tag: "".to_string(),
             channels: vec![],
+            result: ProbeResult::default(),
+            name,
             timeout,
             interval,
-            result: ProbeResult::default(),
             behavior,
         };
 
@@ -86,15 +112,40 @@ impl Prober for HttpProber {
         &self.default_prober.interval
     }
 
-    fn result(&self) -> &ProbeResult {
-        &self.default_prober.result
+    fn result(&mut self) -> &mut ProbeResult {
+        &mut self.default_prober.result
     }
 
     async fn probe(&mut self) -> ProbeResult {
         self.default_prober.probe().await
     }
 
-    fn config(&mut self, setting: &ProbeSetting) {
-        self.default_prober.config(setting);
+    async fn config(&mut self, setting: &ProbeSetting) -> Result<()> {
+        self.default_prober.config(setting).await?;
+
+        let b = &self.default_prober.behavior;
+
+        if let Err(err) = Url::parse(&b.url) {
+            log::error!(
+                "[{} / {}] URL is not valid - {} url={}",
+                self.kind(),
+                self.name(),
+                err,
+                b.url,
+            );
+            bail!(err)
+        }
+
+        let mut client_builder = Client::builder().timeout(setting.timeout);
+
+        if let Some(proxy) = &b.proxy {
+            let proxy = reqwest::Proxy::http(proxy)?;
+            client_builder = client_builder.proxy(proxy);
+        }
+
+        let b = &mut self.default_prober.behavior;
+        b.client = Some(client_builder.build()?);
+
+        Ok(())
     }
 }
