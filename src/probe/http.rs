@@ -138,9 +138,28 @@ impl Prober for HttpProber {
 
         let mut client_builder = Client::builder().timeout(setting.timeout);
 
-        if let Some(proxy) = &b.proxy {
-            let proxy = reqwest::Proxy::http(proxy)?;
+        // proxy server
+        if let Some(proxy_url) = &b.proxy {
+            if let Err(err) = Url::parse(&proxy_url) {
+                log::error!(
+                    "[{} / {}] proxy URL is not valid - {} url={}",
+                    self.kind(),
+                    self.name(),
+                    err,
+                    proxy_url,
+                );
+                bail!(err)
+            }
+
+            let proxy = reqwest::Proxy::http(proxy_url.trim())?;
+
             client_builder = client_builder.proxy(proxy);
+            log::debug!(
+                "[{} / {}] proxy server is {}",
+                self.kind(),
+                self.name(),
+                proxy_url,
+            );
         }
 
         let b = &mut self.default_prober.behavior;
