@@ -4,7 +4,7 @@ export RUST_LOG=debug
 
 all: release
 
-run:
+run: build
 	./easeprobe
 
 build:

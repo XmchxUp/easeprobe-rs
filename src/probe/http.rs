@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::{Client, Method, Url};
 use std::{collections::HashMap, time::Duration};
 
-use crate::ProbeSetting;
+use crate::{NotificationStrategySettings, ProbeSettings, StatusChangeThresholdSettings};
 
 use super::{DefaultProber, ProbeBehavior, ProbeResult, Prober};
 
@@ -57,8 +57,8 @@ impl ProbeBehavior for HttpProbeBehavior {
 
 impl HttpProber {
     pub fn new(
-        name: String,
-        url: String,
+        name: &str,
+        url: &str,
         method: Method,
         headers: HashMap<String, String>,
         body: Option<String>,
@@ -66,13 +66,13 @@ impl HttpProber {
         interval: Duration,
     ) -> Self {
         let behavior = HttpProbeBehavior {
-            url,
             method,
             headers,
             body,
             success_codes: vec![(200, 299)],
             proxy: None,
             client: None,
+            url: url.to_string(),
         };
 
         let default_prober = DefaultProber {
@@ -80,10 +80,12 @@ impl HttpProber {
             tag: "".to_string(),
             channels: vec![],
             result: ProbeResult::default(),
-            name,
+            name: name.to_string(),
             timeout,
             interval,
             behavior,
+            threshold: StatusChangeThresholdSettings::default(),
+            notification: NotificationStrategySettings::default(),
         };
 
         Self { default_prober }
@@ -120,7 +122,7 @@ impl Prober for HttpProber {
         self.default_prober.probe().await
     }
 
-    async fn config(&mut self, setting: &ProbeSetting) -> Result<()> {
+    async fn config(&mut self, setting: &ProbeSettings) -> Result<()> {
         self.default_prober.config(setting).await?;
 
         let b = &self.default_prober.behavior;

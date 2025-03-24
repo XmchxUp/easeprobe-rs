@@ -10,7 +10,7 @@ chrono = "0.4.39"
 clap = { version = "4.5.23", features = ["derive"] }
 dashmap = "6.1.0"
 log = "0.4.22"
-logforth = "0.22.1"
+logforth = "0.23.1"
 reqwest = "0.12.12"
 scopeguard = "1.2.0"
 tokio = { version = "1", features = ["full"] }

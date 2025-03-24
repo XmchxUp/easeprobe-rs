@@ -2,10 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::sync::RwLock;
 
-use crate::{manager::get_channel, ProbeSetting, Prober, Status};
+use crate::{manager::get_channel, ProbeSettings, Prober, Status};
 
 pub async fn config_probers(probers: &mut Vec<Arc<RwLock<dyn Prober>>>) {
-    let setting = ProbeSetting::default();
+    let setting = ProbeSettings::default();
     let mut valid_probers = Vec::new();
 
     for ele in probers.iter() {

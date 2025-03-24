@@ -15,8 +15,8 @@ async fn main() -> Result<()> {
     manager::set_channel("test").await;
 
     let prober = HttpProber::new(
-        "HttpProbe".to_string(),
-        "http://www.google.com".to_string(),
+        "HttpProbe",
+        "http://www.google.com",
         Method::GET,
         HashMap::new(),
         None,

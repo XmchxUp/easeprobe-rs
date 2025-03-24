@@ -5,8 +5,8 @@ use std::{collections::HashMap, time::Duration};
 use tokio::sync::{mpsc, Mutex, Notify, RwLock};
 
 use crate::{
-    global, DefaultNotifier, DefaultProber, Format, Notifier, ProbeBehavior, ProbeResult, Prober,
-    Status,
+    global, DefaultNotifier, DefaultProber, Format, NotificationStrategySettings, Notifier,
+    ProbeBehavior, ProbeResult, Prober, Status, StatusChangeThresholdSettings,
 };
 
 use super::manager::is_dry_notify;
@@ -333,6 +333,8 @@ pub(crate) fn new_dummy_prober(
         interval: Duration::new(5, 0),
         result: ProbeResult::default(),
         behavior: DummyProbeBehavior,
+        threshold: StatusChangeThresholdSettings::default(),
+        notification: NotificationStrategySettings::default(),
     })
 }
 

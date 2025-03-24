@@ -3,7 +3,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::{ProbeSetting, DEFAULT_CHANNEL_NAME};
+use crate::{
+    NotificationStrategySettings, ProbeSettings, StatusChangeThresholdSettings,
+    DEFAULT_CHANNEL_NAME,
+};
 
 use super::{ProbeBehavior, ProbeResult, Prober};
 
@@ -12,13 +15,15 @@ pub type ProbeFuncType = fn() -> Result<(bool, String)>;
 #[derive(Default)]
 pub struct DefaultProber<B: ProbeBehavior> {
     pub kind: String,
-    pub name: String,
     pub tag: String,
+    pub name: String,
     pub channels: Vec<String>,
     pub timeout: Duration,
     pub interval: Duration,
-    pub result: ProbeResult,
     pub behavior: B,
+    pub result: ProbeResult,
+    pub threshold: StatusChangeThresholdSettings,
+    pub notification: NotificationStrategySettings,
 }
 
 impl<B: ProbeBehavior> DefaultProber<B> {
@@ -80,7 +85,10 @@ impl<B: ProbeBehavior + Send + Sync> Prober for DefaultProber<B> {
         self.result.clone()
     }
 
-    async fn config(&mut self, _setting: &ProbeSetting) -> Result<()> {
+    async fn config(&mut self, setting: &ProbeSettings) -> Result<()> {
+        self.threshold = setting.normalize_threshold(self.threshold);
+        self.notification = setting.normalize_notification_strategy(self.notification);
+
         if self.channels.is_empty() {
             self.channels.push(DEFAULT_CHANNEL_NAME.to_string());
         }

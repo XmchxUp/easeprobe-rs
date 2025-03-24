@@ -15,7 +15,7 @@ pub use http::*;
 mod status_counter;
 pub use status_counter::*;
 
-use crate::ProbeSetting;
+use crate::ProbeSettings;
 
 #[async_trait]
 pub trait Prober: Send + Sync {
@@ -26,7 +26,7 @@ pub trait Prober: Send + Sync {
     fn interval(&self) -> &Duration;
     fn result(&mut self) -> &mut ProbeResult;
     async fn probe(&mut self) -> ProbeResult;
-    async fn config(&mut self, setting: &ProbeSetting) -> Result<()>;
+    async fn config(&mut self, setting: &ProbeSettings) -> Result<()>;
 }
 
 #[async_trait]
