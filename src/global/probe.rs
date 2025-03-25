@@ -1,5 +1,8 @@
 use std::{str::FromStr, time::Duration};
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use super::{
     normalize, DEFAULT_MAX_NOTIFICATION_TIMES, DEFAULT_NOTIFICATION_FACTOR, DEFAULT_PROBE_INTERVAL,
     DEFAULT_STATUS_CHANGE_THRESHOLD, DEFAULT_TIMEOUT,
@@ -13,20 +16,49 @@ pub struct ProbeSettings {
     pub notification: NotificationStrategySettings,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct StatusChangeThresholdSettings {
+    #[schemars(
+        title = "Failure Threshold",
+        description = "The failures threshold to change the status such as 3"
+    )]
     pub failure: i32,
+    #[schemars(
+        title = "Success Threshold",
+        description = "The success threshold to change the status such as 2"
+    )]
     pub success: i32,
 }
 
-#[derive(Default, Clone, Copy)]
+impl Default for StatusChangeThresholdSettings {
+    fn default() -> Self {
+        Self {
+            failure: 1,
+            success: 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct NotificationStrategySettings {
     pub strategy: IntervalStrategy,
     pub factor: i32,
     pub max_times: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+impl Default for NotificationStrategySettings {
+    fn default() -> Self {
+        Self {
+            strategy: IntervalStrategy::Regular,
+            factor: 1,
+            max_times: 1,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 pub enum IntervalStrategy {
     Unknown,
     Regular,

@@ -5,10 +5,14 @@ use chrono::{DateTime, Local, Utc};
 pub use probe::*;
 mod notify;
 pub use notify::*;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Retry {
+    #[schemars(description = "How many times need to retry")]
     pub times: i32,
+    #[schemars(description = "The interval between each retry")]
     pub interval: Duration,
 }
 
@@ -88,4 +92,8 @@ where
         r.times,
         last_error
     )
+}
+
+pub fn get_env_or_default(key: &str, default: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
