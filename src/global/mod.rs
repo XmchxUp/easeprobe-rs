@@ -8,7 +8,7 @@ pub use notify::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Retry {
     #[schemars(description = "How many times need to retry")]
     pub times: i32,

@@ -7,8 +7,9 @@ edition = "2021"
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 chrono = "0.4.39"
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 dashmap = "6.1.0"
+humantime-serde = "1.1"
 log = "0.4.27"
 logforth = "0.23.1"
 reqwest = "0.12.12"

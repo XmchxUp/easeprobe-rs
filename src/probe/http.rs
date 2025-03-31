@@ -1,31 +1,50 @@
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use reqwest::{Client, Method, Url};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 
 use crate::{NotificationStrategySettings, ProbeSettings, StatusChangeThresholdSettings};
 
 use super::{DefaultProber, ProbeBehavior, ProbeResult, Prober};
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HttpProber {
+    #[serde(flatten)]
     pub default_prober: DefaultProber<HttpProbeBehavior>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HttpProbeBehavior {
     pub url: String,
-    pub method: Method,
+    #[serde(default = "default_method")]
+    pub method: String,
+    #[serde(default)]
     pub headers: HashMap<String, String>,
+    #[serde(default)]
     pub body: Option<String>,
+    #[serde(default = "default_success_codes")]
     pub success_codes: Vec<(u16, u16)>,
+    #[serde(default)]
     pub proxy: Option<String>,
+    #[serde(skip)]
     pub client: Option<Client>,
+}
+
+fn default_method() -> String {
+    "GET".to_string()
+}
+
+fn default_success_codes() -> Vec<(u16, u16)> {
+    vec![(0, 499)]
 }
 
 #[async_trait]
 impl ProbeBehavior for HttpProbeBehavior {
     async fn do_probe(&self) -> Result<(bool, String)> {
         if let Some(client) = &self.client {
-            let mut request = client.request(self.method.clone(), &self.url);
+            let method = self.method.parse::<Method>()?;
+            let mut request = client.request(method, &self.url);
 
             if let Some(body) = &self.body {
                 request = request.body(body.clone());
@@ -59,14 +78,14 @@ impl HttpProber {
     pub fn new(
         name: &str,
         url: &str,
-        method: Method,
+        method: &str,
         headers: HashMap<String, String>,
         body: Option<String>,
         timeout: Duration,
         interval: Duration,
     ) -> Self {
         let behavior = HttpProbeBehavior {
-            method,
+            method: method.to_string(),
             headers,
             body,
             success_codes: vec![(200, 299)],

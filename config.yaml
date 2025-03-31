@@ -1,0 +1,11 @@
+http: # http probes
+  - name: EaseProbe Github
+    url: https://github.com/megaease/easeprobe
+notify:
+  log:
+    - name: log file # local log file
+      file: /var/log/easeprobe.log
+settings:
+  probe:
+    timeout: 30s # the time out for all probes
+    interval: 1m # probe every minute for all probes

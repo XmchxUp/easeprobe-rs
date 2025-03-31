@@ -1,3 +1,1 @@
-## EaseProbe Rust Clone
-
-> see https://github.com/megaease/easeprobe
+> https://github.com/megaease/easeprobe

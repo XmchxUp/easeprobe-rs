@@ -2,6 +2,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     NotificationStrategySettings, ProbeSettings, StatusChangeThresholdSettings,
@@ -12,18 +13,35 @@ use super::{ProbeBehavior, ProbeResult, Prober};
 
 pub type ProbeFuncType = fn() -> Result<(bool, String)>;
 
-#[derive(Default)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct DefaultProber<B: ProbeBehavior> {
+    #[serde(skip)]
     pub kind: String,
+    #[serde(skip)]
     pub tag: String,
     pub name: String,
+    #[serde(default)]
     pub channels: Vec<String>,
+    #[serde(default = "default_timeout")]
     pub timeout: Duration,
+    #[serde(default = "default_interval")]
     pub interval: Duration,
+    #[serde(flatten)]
     pub behavior: B,
+    #[serde(skip)]
     pub result: ProbeResult,
+    #[serde(flatten)]
     pub threshold: StatusChangeThresholdSettings,
+    #[serde(alias = "alert", default)]
     pub notification: NotificationStrategySettings,
+}
+
+fn default_timeout() -> Duration {
+    Duration::from_secs(30) // Default from Go: 30s
+}
+
+fn default_interval() -> Duration {
+    Duration::from_secs(60) // Default from Go: 1m
 }
 
 impl<B: ProbeBehavior> DefaultProber<B> {

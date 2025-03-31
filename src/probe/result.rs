@@ -3,9 +3,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use serde::{Deserialize, Serialize};
+
 use super::{NotificationStrategyData, Status, StatusCounter};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProbeResult {
     pub name: String,
     pub endpoint: String,
@@ -56,7 +58,7 @@ impl ProbeResult {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stat {
     pub since: SystemTime,
     pub total: i64,

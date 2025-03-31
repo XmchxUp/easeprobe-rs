@@ -16,13 +16,15 @@ pub struct ProbeSettings {
     pub notification: NotificationStrategySettings,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Default, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct StatusChangeThresholdSettings {
+    #[serde(default = "default_failure")]
     #[schemars(
         title = "Failure Threshold",
         description = "The failures threshold to change the status such as 3"
     )]
     pub failure: i32,
+    #[serde(default = "default_success")]
     #[schemars(
         title = "Success Threshold",
         description = "The success threshold to change the status such as 2"
@@ -30,13 +32,12 @@ pub struct StatusChangeThresholdSettings {
     pub success: i32,
 }
 
-impl Default for StatusChangeThresholdSettings {
-    fn default() -> Self {
-        Self {
-            failure: 1,
-            success: 1,
-        }
-    }
+fn default_failure() -> i32 {
+    1
+}
+
+fn default_success() -> i32 {
+    1
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]

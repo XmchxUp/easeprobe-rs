@@ -1,11 +1,17 @@
-mod probe;
+use std::fs;
+
 use anyhow::Result;
 use clap::Parser;
+
+mod probe;
 pub use probe::*;
 mod notify;
 pub use notify::*;
 
-use crate::{conf, get_env_or_default};
+use crate::{
+    conf::{self, Conf},
+    get_env_or_default,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -32,6 +38,10 @@ pub fn start() -> Result<()> {
         println!("{}", schema);
         std::process::exit(0);
     }
+
+    let f = fs::read(args.yaml_file)?;
+    let c: Conf = serde_yaml::from_slice(&f)?;
+    println!("{:?}", c);
 
     Ok(())
 }

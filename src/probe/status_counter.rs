@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusHistory {
     pub status: bool,
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusCounter {
     pub status_history: VecDeque<StatusHistory>,
     max_len: usize,

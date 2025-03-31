@@ -11,4 +11,3 @@ use probe::*;
 mod report;
 use report::*;
 mod conf;
-use conf::*;
