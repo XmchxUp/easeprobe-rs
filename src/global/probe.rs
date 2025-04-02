@@ -8,12 +8,29 @@ use super::{
     DEFAULT_STATUS_CHANGE_THRESHOLD, DEFAULT_TIMEOUT,
 };
 
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProbeSettings {
+    #[serde(with = "humantime_serde")]
+    // #[schemars(description = "The interval of probe")]
     pub interval: Duration,
+    #[serde(with = "humantime_serde")]
+    // #[schemars(description = "The timeout of probe")]
     pub timeout: Duration,
+    #[serde(flatten, default)]
     pub threshold: StatusChangeThresholdSettings,
+    #[serde(default, alias = "alert")]
     pub notification: NotificationStrategySettings,
+}
+
+impl Default for ProbeSettings {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(60),
+            timeout: Duration::from_secs(30),
+            threshold: Default::default(),
+            notification: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Default, Copy, Debug, Serialize, Deserialize, JsonSchema)]

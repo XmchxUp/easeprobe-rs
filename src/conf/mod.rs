@@ -1,13 +1,17 @@
 use anyhow::Result;
-use schemars::{schema_for, JsonSchema};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::{global, probe};
+use crate::{
+    global::{NotifierSetting, ProbeSettings},
+    notify, probe,
+};
 
 pub fn json_schema() -> Result<String> {
-    let schema = schema_for!(Notify);
-    Ok(serde_json::to_string_pretty(&schema)?)
+    Ok("".to_string())
+    // let schema = schema_for!(Conf);
+    // Ok(serde_json::to_string_pretty(&schema)?)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -24,39 +28,6 @@ pub enum Schedule {
 impl Default for Schedule {
     fn default() -> Self {
         Self::None
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
-pub struct Notify {
-    #[schemars(description = "The retry settings")]
-    pub retry: global::Retry,
-    #[schemars(description = "Set true to make the notification dry run and not send the message")]
-    pub dry: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Probe {
-    #[serde(with = "humantime_serde")]
-    // #[schemars(description = "The interval of probe")]
-    pub interval: Duration,
-    #[serde(with = "humantime_serde")]
-    // #[schemars(description = "The timeout of probe")]
-    pub timeout: Duration,
-    #[serde(flatten, default)]
-    pub threshold: global::StatusChangeThresholdSettings,
-    #[serde(default, alias = "alert")]
-    pub alert: global::NotificationStrategySettings,
-}
-
-impl Default for Probe {
-    fn default() -> Self {
-        Self {
-            interval: Duration::from_secs(60),
-            timeout: Duration::from_secs(30),
-            threshold: Default::default(),
-            alert: Default::default(),
-        }
     }
 }
 
@@ -103,9 +74,9 @@ impl Default for HTTPServer {
 
 // Global Settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Settings {
+pub struct Settings {
     #[serde(default = "default_name")]
-    name: String,
+    pub name: String,
     #[serde(default)]
     icon: String,
     #[serde(default)]
@@ -117,9 +88,9 @@ struct Settings {
     #[serde(default = "default_time_zone")]
     timezone: String,
     #[serde(default)]
-    probe: Probe,
+    pub probe: ProbeSettings,
     #[serde(default)]
-    notify: Notify,
+    pub notify: NotifierSetting,
     #[serde(default)]
     sla: SLAReport,
     #[serde(default)]
@@ -143,8 +114,7 @@ pub struct Conf {
     #[serde(default)]
     version: String,
     #[serde(default)]
-    http: Vec<probe::HttpProber>,
-    // #[serde(default)]
-    // notify: notify::Config,
-    settings: Settings,
+    pub http: Vec<probe::HttpProber>,
+    pub notify: notify::Config,
+    pub settings: Settings,
 }

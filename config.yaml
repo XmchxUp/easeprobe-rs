@@ -4,7 +4,7 @@ http: # http probes
 notify:
   log:
     - name: log file # local log file
-      file: /var/log/easeprobe.log
+      file: /tmp/easeprobe.log
 settings:
   probe:
     timeout: 30s # the time out for all probes

@@ -1,12 +1,29 @@
 use std::time::Duration;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use super::{normalize, Retry, DEFAULT_RETRY_INTERVAL, DEFAULT_RETRY_TIMES, DEFAULT_TIMEOUT};
 
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NotifierSetting {
     pub time_format: String,
     pub timeout: Duration,
+    #[schemars(description = "The retry settings")]
     pub retry: Retry,
+}
+
+impl Default for NotifierSetting {
+    fn default() -> Self {
+        Self {
+            time_format: Default::default(),
+            timeout: Default::default(),
+            retry: Retry {
+                times: DEFAULT_RETRY_TIMES,
+                interval: DEFAULT_RETRY_INTERVAL,
+            },
+        }
+    }
 }
 
 impl NotifierSetting {

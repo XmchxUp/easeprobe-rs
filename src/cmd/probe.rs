@@ -2,15 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::sync::RwLock;
 
-use crate::{manager::get_channel, ProbeSettings, Prober, Status};
+use crate::{conf, manager::get_channel, Prober, Status};
 
-pub async fn config_probers(probers: &mut Vec<Arc<RwLock<dyn Prober>>>) {
-    let setting = ProbeSettings::default();
+pub async fn config_probers(probers: &mut Vec<Arc<RwLock<dyn Prober>>>, gs: &conf::Settings) {
     let mut valid_probers = Vec::new();
 
     for ele in probers.iter() {
         let mut e = ele.write().await;
-        if let Err(err) = e.config(&setting).await {
+        if let Err(err) = e.config(&gs.probe).await {
             let result = e.result();
             result.status = Status::Bad;
             result.message = format!("Bad Configuration: {}", err);
